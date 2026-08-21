@@ -1,0 +1,56 @@
+name: Build Chromium WebView APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+
+      - name: Obtener fecha y hora para el Tag
+        id: timestamp
+        run: |
+          echo "tag_name=WebView-Build-$(date +'%Y%m%d-%H%M')" >> $GITHUB_OUTPUT
+
+      - name: Configurar espacio de trabajo y dependencias
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git python3 curl build-essential ninja-build
+
+      - name: Instalar depot_tools
+        run: |
+          git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
+          echo "$GITHUB_WORKSPACE/depot_tools" >> $GITHUB_PATH
+
+      - name: Descargar fuente de Chromium (WebView)
+        run: |
+          export PATH="$GITHUB_WORKSPACE/depot_tools:$PATH"
+          mkdir chromium && cd chromium
+          fetch --no-history android
+          cd src
+          ./build/install-build-deps.sh --android
+
+      - name: Configurar y compilar WebView APK
+        run: |
+          export PATH="$GITHUB_WORKSPACE/depot_tools:$PATH"
+          cd chromium/src
+          
+          # Configuración de compilación para Android (Target Release)
+          gn gen out/Default --args='target_os="android" target_cpu="arm64" is_debug=falseis_official_build=true System_webview_package_name="com.android.webview"'
+          
+          # Compilar solo el objetivo del APK de WebView
+          autoninja -C out/Default system_webview_apk
+
+      - name: Crear Release y subir el APK
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.timestamp.outputs.tag_name }}
+          name: Release ${{ steps.timestamp.outputs.tag_name }}
+          files: |
+            chromium/src/out/Default/apks/SystemWebView.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
